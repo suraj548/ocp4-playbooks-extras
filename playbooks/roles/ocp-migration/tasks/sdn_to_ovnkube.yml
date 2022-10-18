@@ -51,8 +51,15 @@
     --patch '{ "spec": { "migration": {"networkType": "OVNKubernetes" } } }'
 
 # Check nodes, MCP
-- name: Check all nodes are Ready
-  shell: oc wait --all  --for=condition=Ready nodes --timeout=600s
+
+- name: Check patch being applied - if nodes are getting into SchedulingDisabled or NotReday state
+  shell: |
+    oc get nodes --no-headers | grep -w 'SchedulingDisabled\|NotReady' | wc -l
+  register: operand_count
+  untill: operand_count.stdout|int > 0
+  retries: 10
+  delay: 30
+
 
 - name: check if machineconfigpool in updated state 
   shell: |
@@ -60,8 +67,8 @@
     oc get machineconfigpool -n openshift-machine-config-operator --no-headers | awk '{ print $3 $4 $5 }' | grep -w  -v TrueFalseFalse  |  wc -l
   register: operand_count
   until: operand_count.stdout|int == 0
-  retries: 5
-  delay: 500
+  retries: 10
+  delay: 120
 
 - name: check if all nodes are in READY state
   shell: |
@@ -71,7 +78,16 @@
   retries: 5
   delay: 30
  
- 
+- name: Check if all MachineConfig pods are in running state
+  shell: oc get pods -n openshift-machine-config-operator | awk '{print $3}' | grep -v STATUS | grep -v Running | wc -l
+  register: mc_pods
+  untill: mc_pods.stdout|int == 0
+  retries: 6
+  delay: 120
+- debug: 
+    msg: "Some config pods are not in good state"
+  when: mc_pods.stdout|int != 0
+
 # Check CO Health Status
 - name: check if all CO are in AVAILABLE state
   shell:  oc get co  | awk '{ print $3}' | grep -v AVAILABLE | grep False | wc -l
